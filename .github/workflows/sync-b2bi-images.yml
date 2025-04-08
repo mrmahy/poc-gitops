@@ -15,36 +15,37 @@ jobs:
 
       - name: Log in to IBM Entitled Registry
         run: |
-          echo "${{ secrets.IBM_ENTITLED_REGISTRY_PASSWORD }}" | docker login cp.icr.io -u cp --password-stdin
+          echo "${{ secrets.ENTITLED_REGISTRY_KEY }}" | docker login cp.icr.io -u ${{ secrets.ENTITLED_REGISTRY_USER }} --password-stdin
+
+      - name: Log in to Docker Hub
+        run: |
+          echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
 
       - name: Pull and Tag Images
         run: |
           docker pull cp.icr.io/cp/ibm-b2bi/b2bi:6.2.0.0
-          docker tag cp.icr.io/cp/ibm-b2bi/b2bi:6.2.0.0 your-dockerhub-username/b2bi:6.2.0.0
-
+          docker tag cp.icr.io/cp/ibm-b2bi/b2bi:6.2.0.0 ${{ secrets.DOCKER_USERNAME }}/ibm-b2bi:6.2.0.0
+          
           docker pull cp.icr.io/cp/ibm-b2bi/b2bi-dbsetup:6.2.0.0
-          docker tag cp.icr.io/cp/ibm-b2bi/b2bi-dbsetup:6.2.0.0 your-dockerhub-username/b2bi-dbsetup:6.2.0.0
+          docker tag cp.icr.io/cp/ibm-b2bi/b2bi-dbsetup:6.2.0.0 ${{ secrets.DOCKER_USERNAME }}/ibm-b2bi-dbsetup:6.2.0.0
 
           docker pull cp.icr.io/cp/ibm-b2bi/b2bi-purge:6.2.0.0
-          docker tag cp.icr.io/cp/ibm-b2bi/b2bi-purge:6.2.0.0 your-dockerhub-username/b2bi-purge:6.2.0.0
+          docker tag cp.icr.io/cp/ibm-b2bi/b2bi-purge:6.2.0.0 ${{ secrets.DOCKER_USERNAME }}/ibm-b2bi-purge:6.2.0.0
 
           docker pull cp.icr.io/cp/ibm-b2bi/b2bi-ps:6.2.0.0
-          docker tag cp.icr.io/cp/ibm-b2bi/b2bi-ps:6.2.0.0 your-dockerhub-username/b2bi-ps:6.2.0.0
+          docker tag cp.icr.io/cp/ibm-b2bi/b2bi-ps:6.2.0.0 ${{ secrets.DOCKER_USERNAME }}/ibm-b2bi-ps:6.2.0.0
 
           docker pull cp.icr.io/cp/ibm-b2bi/b2bi-resources:6.2.0.0
-          docker tag cp.icr.io/cp/ibm-b2bi/b2bi-resources:6.2.0.0 your-dockerhub-username/b2bi-resources:6.2.0.0
+          docker tag cp.icr.io/cp/ibm-b2bi/b2bi-resources:6.2.0.0 ${{ secrets.DOCKER_USERNAME }}/ibm-b2bi-resources:6.2.0.0
 
           docker pull cp.icr.io/cp/ibm-b2bi/b2bi-documentservice:1.0.0.0
-          docker tag cp.icr.io/cp/ibm-b2bi/b2bi-documentservice:1.0.0.0 your-dockerhub-username/b2bi-documentservice:1.0.0.0
-
-      - name: Log in to Docker Hub
-        run: echo "${{ secrets.DOCKERHUB_PASSWORD }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+          docker tag cp.icr.io/cp/ibm-b2bi/b2bi-documentservice:1.0.0.0 ${{ secrets.DOCKER_USERNAME }}/ibm-b2bi-documentservice:1.0.0.0
 
       - name: Push Images to Docker Hub
         run: |
-          docker push your-dockerhub-username/b2bi:6.2.0.0
-          docker push your-dockerhub-username/b2bi-dbsetup:6.2.0.0
-          docker push your-dockerhub-username/b2bi-purge:6.2.0.0
-          docker push your-dockerhub-username/b2bi-ps:6.2.0.0
-          docker push your-dockerhub-username/b2bi-resources:6.2.0.0
-          docker push your-dockerhub-username/b2bi-documentservice:1.0.0.0
+          docker push ${{ secrets.DOCKER_USERNAME }}/ibm-b2bi:6.2.0.0
+          docker push ${{ secrets.DOCKER_USERNAME }}/ibm-b2bi-dbsetup:6.2.0.0
+          docker push ${{ secrets.DOCKER_USERNAME }}/ibm-b2bi-purge:6.2.0.0
+          docker push ${{ secrets.DOCKER_USERNAME }}/ibm-b2bi-ps:6.2.0.0
+          docker push ${{ secrets.DOCKER_USERNAME }}/ibm-b2bi-resources:6.2.0.0
+          docker push ${{ secrets.DOCKER_USERNAME }}/ibm-b2bi-documentservice:1.0.0.0
