@@ -1,0 +1,43 @@
+      - name: Pull, Tag, and Push IBM Images to ACR (Python-based)
+        run: |
+          registry="ss151camdmzue2acr.azurecr.io"
+          config_file=".github/ibm-images-config.yaml"
+
+          cat > /tmp/process-images.py <<EOF
+import yaml
+import subprocess
+import sys
+
+def run(cmd):
+    print(f"\033[96m$ {' '.join(cmd)}\033[0m")
+    try:
+        subprocess.run(cmd, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"\033[91m❌ Error running: {' '.join(cmd)}\n{e}\033[0m", file=sys.stderr)
+        sys.exit(1)
+
+with open("${config_file}", "r") as f:
+    images = yaml.safe_load(f)["images"]
+
+for img in images:
+    name = img["name"]
+    tag = img["tag"]
+    src = f"cp.icr.io/cp/{name}:{tag}"
+    path, image = name.rsplit("/", 1) if "/" in name else ("", name)
+    dst = f"{registry}/dflink/{path}/{image}:{tag}" if path else f"{registry}/dflink/{image}:{tag}"
+
+    print(f"🔄 Pulling {src}")
+    run(["docker", "pull", src])
+
+    print(f"🏷️  Tagging as {dst}")
+    run(["docker", "tag", src, dst])
+
+    print(f"🚀 Pushing {dst}")
+    run(["docker", "push", dst])
+
+    print(f"🧹 Removing local images to save space")
+    run(["docker", "rmi", src])
+    run(["docker", "rmi", dst])
+EOF
+
+          python3 /tmp/process-images.py
