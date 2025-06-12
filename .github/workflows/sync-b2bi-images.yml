@@ -1,51 +1,87 @@
-name: Sync IBM B2Bi Images
+name: Import IBM Images to ACR
 
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
-  sync-images:
-    runs-on: ubuntu-latest
+  import-ibm-images:
+    name: Import IBM Images to ACR
+    runs-on:
+      group: intelligent-search
+      labels: [self-hosted, linux, x64]
+
+    environment: non-prod
 
     steps:
-      - name: Checkout Repo
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Log in to IBM Entitled Registry
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.EW_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.EW_AZURE_SUBSCRIPTION_ID }}
+
+      - name: Login to IBM Container Registry
+        env:
+          ENTITLED_REGISTRY_USER: ${{ secrets.ENTITLED_REGISTRY_USER }}
+          ENTITLED_REGISTRY_KEY: ${{ secrets.ENTITLED_REGISTRY_KEY }}
         run: |
-          echo "${{ secrets.ENTITLED_REGISTRY_KEY }}" | docker login cp.icr.io -u ${{ secrets.ENTITLED_REGISTRY_USER }} --password-stdin
+          echo "$ENTITLED_REGISTRY_KEY" | docker login cp.icr.io -u "$ENTITLED_REGISTRY_USER" --password-stdin
 
-      - name: Log in to Docker Hub
+      - name: Login to Azure Container Registry
         run: |
-          echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
+          az acr login --name ss151camdmzue2acr
 
-      - name: Pull and Tag Images
+      - name: Pull, Tag, and Push IBM Images to ACR (Python-based)
         run: |
-          docker pull cp.icr.io/cp/ibm-b2bi/b2bi:6.2.0.0
-          docker tag cp.icr.io/cp/ibm-b2bi/b2bi:6.2.0.0 ${{ secrets.DOCKER_USERNAME }}/ibm-b2bi:6.2.0.0
-          
-          docker pull cp.icr.io/cp/ibm-b2bi/b2bi-dbsetup:6.2.0.0
-          docker tag cp.icr.io/cp/ibm-b2bi/b2bi-dbsetup:6.2.0.0 ${{ secrets.DOCKER_USERNAME }}/ibm-b2bi-dbsetup:6.2.0.0
+          registry="ss151camdmzue2acr.azurecr.io"
+          config_file=".github/ibm-images-config.yaml"
 
-          docker pull cp.icr.io/cp/ibm-b2bi/b2bi-purge:6.2.0.0
-          docker tag cp.icr.io/cp/ibm-b2bi/b2bi-purge:6.2.0.0 ${{ secrets.DOCKER_USERNAME }}/ibm-b2bi-purge:6.2.0.0
+          cat > /tmp/process-images.py <<EOF
+import yaml
+import subprocess
+import sys
 
-          docker pull cp.icr.io/cp/ibm-b2bi/b2bi-ps:6.2.0.0
-          docker tag cp.icr.io/cp/ibm-b2bi/b2bi-ps:6.2.0.0 ${{ secrets.DOCKER_USERNAME }}/ibm-b2bi-ps:6.2.0.0
+def run(cmd):
+    print(f"\033[96m$ {' '.join(cmd)}\033[0m")
+    try:
+        subprocess.run(cmd, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"\033[91m❌ Error running: {' '.join(cmd)}\n{e}\033[0m", file=sys.stderr)
+        sys.exit(1)
 
-          docker pull cp.icr.io/cp/ibm-b2bi/b2bi-resources:6.2.0.0
-          docker tag cp.icr.io/cp/ibm-b2bi/b2bi-resources:6.2.0.0 ${{ secrets.DOCKER_USERNAME }}/ibm-b2bi-resources:6.2.0.0
+with open("${config_file}", "r") as f:
+    images = yaml.safe_load(f)["images"]
 
-          docker pull cp.icr.io/cp/ibm-b2bi/b2bi-documentservice:1.0.0.0
-          docker tag cp.icr.io/cp/ibm-b2bi/b2bi-documentservice:1.0.0.0 ${{ secrets.DOCKER_USERNAME }}/ibm-b2bi-documentservice:1.0.0.0
+for img in images:
+    name = img["name"]
+    tag = img["tag"]
+    src = f"cp.icr.io/cp/{name}:{tag}"
+    path, image = name.rsplit("/", 1) if "/" in name else ("", name)
+    dst = f"{registry}/dflink/{path}/{image}:{tag}" if path else f"{registry}/dflink/{image}:{tag}"
 
-      - name: Push Images to Docker Hub
-        run: |
-          docker push ${{ secrets.DOCKER_USERNAME }}/ibm-b2bi:6.2.0.0
-          docker push ${{ secrets.DOCKER_USERNAME }}/ibm-b2bi-dbsetup:6.2.0.0
-          docker push ${{ secrets.DOCKER_USERNAME }}/ibm-b2bi-purge:6.2.0.0
-          docker push ${{ secrets.DOCKER_USERNAME }}/ibm-b2bi-ps:6.2.0.0
-          docker push ${{ secrets.DOCKER_USERNAME }}/ibm-b2bi-resources:6.2.0.0
-          docker push ${{ secrets.DOCKER_USERNAME }}/ibm-b2bi-documentservice:1.0.0.0
+    print(f"🔄 Pulling {src}")
+    run(["docker", "pull", src])
+
+    print(f"🏷️  Tagging as {dst}")
+    run(["docker", "tag", src, dst])
+
+    print(f"🚀 Pushing {dst}")
+    run(["docker", "push", dst])
+
+    print(f"🧹 Removing local images to save space")
+    run(["docker", "rmi", src])
+    run(["docker", "rmi", dst])
+EOF
+
+          python3 /tmp/process-images.py
+
+      - name: Clean up runner
+        uses: DayforceCoE/re-actions/common/clean-up-self-hosted-runner@v6
+        if: always()
