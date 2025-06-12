@@ -20,6 +20,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Verify config file exists
+        run: |
+          if [ ! -f ".github/ibm-images-config.yaml" ]; then
+            echo "::error::Config file .github/ibm-images-config.yaml not found"
+            exit 1
+          fi
+
       - name: Azure Login
         uses: azure/login@v2
         with:
@@ -44,43 +51,62 @@ jobs:
           config_file=".github/ibm-images-config.yaml"
 
           cat > /tmp/process-images.py <<-EOF
-          	import yaml
-          	import subprocess
-          	import sys
+          import yaml
+          import subprocess
+          import sys
+          from datetime import datetime
 
-          	def run(cmd):
-          	    print(f"\033[96m$ {' '.join(cmd)}\033[0m")
-          	    try:
-          	        subprocess.run(cmd, check=True)
-          	    except subprocess.CalledProcessError as e:
-          	        print(f"\033[91m❌ Error running: {' '.join(cmd)}\n{e}\033[0m", file=sys.stderr)
-          	        sys.exit(1)
+          def log(message):
+              print(f"[{datetime.now().isoformat()}] {message}")
 
-          	with open("${config_file}", "r") as f:
-          	    images = yaml.safe_load(f)["images"]
+          def run(cmd, max_retries=2):
+              log(f"Executing: {' '.join(cmd)}")
+              attempts = 0
+              while attempts <= max_retries:
+                  try:
+                      subprocess.run(cmd, check=True)
+                      return
+                  except subprocess.CalledProcessError as e:
+                      attempts += 1
+                      if attempts > max_retries:
+                          log(f"❌ Failed after {max_retries} retries: {' '.join(cmd)}")
+                          sys.exit(1)
+                      log(f"⚠️ Attempt {attempts} failed, retrying...")
 
-          	for img in images:
-          	    name = img["name"]
-          	    tag = img["tag"]
-          	    src = f"cp.icr.io/cp/{name}:{tag}"
-          	    path, image = name.rsplit("/", 1) if "/" in name else ("", name)
-          	    dst = f"{registry}/dflink/{path}/{image}:{tag}" if path else f"{registry}/dflink/{image}:{tag}"
+          try:
+              with open("${config_file}", "r") as f:
+                  images = yaml.safe_load(f)["images"]
 
-          	    print(f"🔄 Pulling {src}")
-          	    run(["docker", "pull", src])
+              for img in images:
+                  name = img["name"]
+                  tag = img["tag"]
+                  src = f"cp.icr.io/cp/{name}:{tag}"
+                  path, image = name.rsplit("/", 1) if "/" in name else ("", name)
+                  dst = f"{registry}/dflink/{path}/{image}:{tag}" if path else f"{registry}/dflink/{image}:{tag}"
 
-          	    print(f"🏷️  Tagging as {dst}")
-          	    run(["docker", "tag", src, dst])
+                  log(f"🔄 Pulling {src}")
+                  run(["docker", "pull", src])
 
-          	    print(f"🚀 Pushing {dst}")
-          	    run(["docker", "push", dst])
+                  log(f"🏷️ Tagging as {dst}")
+                  run(["docker", "tag", src, dst])
 
-          	    print(f"🧹 Removing local images to save space")
-          	    run(["docker", "rmi", src])
-          	    run(["docker", "rmi", dst])
+                  log(f"🚀 Pushing {dst}")
+                  run(["docker", "push", dst])
+
+                  log(f"🧹 Removing local images")
+                  run(["docker", "rmi", src, dst])
+
+          except Exception as e:
+              log(f"❌ Unexpected error: {str(e)}")
+              sys.exit(1)
           EOF
 
           python3 /tmp/process-images.py
+
+      - name: Clean up Docker resources
+        if: always()
+        run: |
+          docker system prune -f
 
       - name: Clean up runner
         uses: DayforceCoE/re-actions/common/clean-up-self-hosted-runner@v6
